@@ -20,11 +20,11 @@ $ cargo run --release <my_pcb.wrl >my_pcb.scad
 Write the VRML file to stdin, and an OpenSCAD script will be written to the
 output, which you probably want to redirect to a file.
 
-Every `DEF` in the VRML file is a variable or a module (depending on the type).
-To include it in an existing module, you can import it with the
-[`use`][scad-use] statement. Then, instantiate the module corresponding to the
-top-level node, which is the _last_ module defined in the generated OpenSCAD
-file. (If it's from KiCAD, it's probably `TXFM_1`.) For example:
+You can open the generated file directly in OpenSCAD to view it. It can also
+be used in other OpenSCAD scripts: import it with the [`use`][scad-use]
+statement, then instantiate the module corresponding to the top-level `DEF`,
+which is the _last_ module defined in the generated OpenSCAD file. (If it's
+from KiCAD, it's probably `TXFM_1`.) For example:
 
 ```
 use <my_pcb.scad>
