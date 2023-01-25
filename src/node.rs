@@ -6,8 +6,8 @@ use chumsky::{select, Parser as _};
 use std::io::{self, Write};
 use std::rc::Rc;
 
-pub trait Parser<T>: chumsky::Parser<Token, T, Error = Simple<Token>> {}
-impl<T, P: chumsky::Parser<Token, T, Error = Simple<Token>>> Parser<T> for P {}
+pub trait Parser<'a, T>: chumsky::Parser<Token<'a>, T, Error = Simple<Token<'a>>> {}
+impl<'a, T, P: chumsky::Parser<Token<'a>, T, Error = Simple<Token<'a>>>> Parser<'a, T> for P {}
 
 pub trait WriteDef {
     fn write_def(&self, id: &str, w: &mut impl Write) -> io::Result<()>;
@@ -20,15 +20,17 @@ pub enum DefOr<T> {
 }
 
 impl<T> DefOr<T> {
-    pub fn parser(p: impl Parser<T>) -> impl Parser<DefOr<T>> {
+    pub fn parser<'a>(p: impl Parser<'a, T>) -> impl Parser<'a, DefOr<T>> {
         let p = Rc::new(p);
 
         choice((
             keyword("DEF")
-                .ignore_then(ident())
+                .ignore_then(ident().map(str::to_owned))
                 .then(p.clone())
-                .map(|(id, t)| Self::Def(id, t)),
-            keyword("USE").ignore_then(ident()).map(Self::Use),
+                .map(|(id, t)| Self::Def(id.into(), t)),
+            keyword("USE")
+                .ignore_then(ident().map(str::to_owned))
+                .map(Self::Use),
         ))
     }
 
@@ -57,7 +59,7 @@ pub enum Node {
 }
 
 impl Node {
-    pub fn parser() -> impl Parser<Self> {
+    pub fn parser<'a>() -> impl Parser<'a, Self> {
         recursive(|node| {
             choice((
                 Transform::parser(node).map(Self::Transform),
@@ -87,7 +89,9 @@ pub struct Transform {
 }
 
 impl Transform {
-    fn parser<'a>(node: Recursive<'a, Token, Node, Simple<Token>>) -> impl Parser<Self> + 'a {
+    fn parser<'a, 'b: 'a>(
+        node: Recursive<'a, Token<'b>, Node, Simple<Token<'b>>>,
+    ) -> impl Parser<'b, Self> + 'a {
         keyword("Transform")
             .to(Transform::default())
             .then(
@@ -176,7 +180,9 @@ enum TransformField {
 }
 
 impl TransformField {
-    fn parser<'a>(node: Recursive<'a, Token, Node, Simple<Token>>) -> impl Parser<Self> + 'a {
+    fn parser<'a, 'b: 'a>(
+        node: Recursive<'a, Token<'b>, Node, Simple<Token<'b>>>,
+    ) -> impl Parser<'b, Self> + 'a {
         choice((
             keyword("center").ignore_then(vec3()).map(Self::Center),
             keyword("rotation").ignore_then(vec4()).map(Self::Rotation),
@@ -205,7 +211,7 @@ pub struct Shape {
 }
 
 impl Shape {
-    fn parser() -> impl Parser<Self> {
+    fn parser<'a>() -> impl Parser<'a, Self> {
         keyword("Shape")
             .ignore_then(
                 (keyword("appearance").ignore_then(DefOr::parser(Appearance::parser())))
@@ -240,7 +246,7 @@ struct Appearance {
 }
 
 impl Appearance {
-    fn parser() -> impl Parser<Self> {
+    fn parser<'a>() -> impl Parser<'a, Self> {
         keyword("Appearance")
             .ignore_then(
                 (keyword("material").ignore_then(Material::parser()))
@@ -271,7 +277,7 @@ struct Material {
 }
 
 impl Material {
-    fn parser() -> impl Parser<Self> {
+    fn parser<'a>() -> impl Parser<'a, Self> {
         keyword("Material")
             .ignore_then(
                 (keyword("ambientIntensity").then(float()))
@@ -296,7 +302,7 @@ struct IndexedFaceSet {
 }
 
 impl IndexedFaceSet {
-    fn parser() -> impl Parser<Self> {
+    fn parser<'a>() -> impl Parser<'a, Self> {
         keyword("IndexedFaceSet")
             .ignore_then(
                 (keyword("coord").ignore_then(DefOr::parser(Coordinate::parser())))
@@ -330,7 +336,7 @@ struct Coordinate {
 }
 
 impl Coordinate {
-    fn parser() -> impl Parser<Self> {
+    fn parser<'a>() -> impl Parser<'a, Self> {
         keyword("Coordinate")
             .ignore_then(
                 keyword("point")
@@ -359,7 +365,7 @@ struct Normal {
 }
 
 impl Normal {
-    fn parser() -> impl Parser<Self> {
+    fn parser<'a>() -> impl Parser<'a, Self> {
         keyword("Normal")
             .ignore_then(
                 keyword("vector")
@@ -370,37 +376,37 @@ impl Normal {
     }
 }
 
-fn vec3() -> impl Parser<[f32; 3]> {
+fn vec3<'a>() -> impl Parser<'a, [f32; 3]> {
     float().repeated().exactly(3).map(|v| v.try_into().unwrap())
 }
 
-fn vec4() -> impl Parser<[f32; 4]> {
+fn vec4<'a>() -> impl Parser<'a, [f32; 4]> {
     float().repeated().exactly(4).map(|v| v.try_into().unwrap())
 }
 
-fn ident() -> impl Parser<String> {
+fn ident<'a>() -> impl Parser<'a, &'a str> {
     select! {
         Token::Ident(x) => x,
     }
 }
 
-fn keyword(s: &str) -> impl Parser<()> {
-    just(Token::Ident(s.into())).ignored()
+fn keyword<'a>(s: &'static str) -> impl Parser<'a, ()> {
+    just(Token::Ident(s)).ignored()
 }
 
-fn int() -> impl Parser<i32> {
+fn int<'a>() -> impl Parser<'a, i32> {
     select! {
         Token::Number(x) => x.parse().unwrap(),
     }
 }
 
-fn float() -> impl Parser<f32> {
+fn float<'a>() -> impl Parser<'a, f32> {
     select! {
         Token::Number(x) => x.parse().unwrap(),
     }
 }
 
-fn list<T>(p: impl Parser<T>) -> impl Parser<Vec<T>> {
+fn list<'a, T>(p: impl Parser<'a, T>) -> impl Parser<'a, Vec<T>> {
     let p = Rc::new(p);
 
     p.clone()

@@ -1,74 +1,98 @@
-use chumsky::error::Simple;
-use chumsky::primitive::{choice, filter, just, take_until};
-use chumsky::text::{digits, ident, newline};
-use chumsky::Parser as _;
-
-pub trait Parser<T>: chumsky::Parser<char, T, Error = Simple<char>> {}
-impl<T, P: chumsky::Parser<char, T, Error = Simple<char>>> Parser<T> for P {}
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Token {
+pub enum Token<'a> {
     Comma,
     OpenBracket,
     CloseBracket,
     OpenBrace,
     CloseBrace,
-    Number(String),
-    Ident(String),
+    Number(&'a str),
+    Ident(&'a str),
 }
 
-impl Token {
-    pub fn tokenizer() -> impl Parser<Vec<Self>> {
-        whitespace().ignore_then(Self::parser().then_ignore(whitespace()).repeated())
-    }
-
-    pub fn parser() -> impl Parser<Self> {
-        choice((
-            just(',').to(Self::Comma),
-            just('[').to(Self::OpenBracket),
-            just(']').to(Self::CloseBracket),
-            just('{').to(Self::OpenBrace),
-            just('}').to(Self::CloseBrace),
-            number().map(Self::Number),
-            ident().map(Self::Ident),
-        ))
-    }
-}
-
-impl std::fmt::Display for Token {
+impl<'a> std::fmt::Display for Token<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{:?}", self)
     }
 }
 
-fn number() -> impl Parser<String> {
-    // [+-]?([0-9]+(\.[0-9]*)?|[0-9]*\.[0-9]+)
-    choice((just('+'), just('-')))
-        .or_not()
-        .chain::<char, _, _>(choice((
-            digits(10).chain::<char, _, _>(
-                just('.')
-                    .chain::<char, _, _>(
-                        digits(10).or_not().map(|opt| opt.unwrap_or(String::new())),
-                    )
-                    .or_not()
-                    .flatten(),
-            ),
-            digits(10)
-                .or_not()
-                .map(|opt| opt.unwrap_or(String::new()))
-                .chain::<char, _, _>(just('.'))
-                .chain::<char, _, _>(digits(10)),
-        )))
-        .collect::<String>()
-}
+pub fn tokenize<'a>(s: &'a str) -> Vec<Token<'a>> {
+    let mut remainder = s.trim();
 
-fn whitespace() -> impl Parser<()> {
-    choice((filter(|c: &char| c.is_whitespace()).ignored(), comment()))
-        .repeated()
-        .ignored()
-}
+    let mut tokens = Vec::new();
 
-fn comment() -> impl Parser<()> {
-    just('#').then(take_until(newline())).ignored()
+    while let Some(head) = remainder.chars().next() {
+        let (len, token) = match head {
+            ',' => (1, Token::Comma),
+            '[' => (1, Token::OpenBracket),
+            ']' => (1, Token::CloseBracket),
+            '{' => (1, Token::OpenBrace),
+            '}' => (1, Token::CloseBrace),
+            '-' | '+' | '.' | '0'..='9' => {
+                let mut pos = 0;
+
+                // Parse optional leading sign
+                if remainder[pos..].starts_with(['-', '+']) {
+                    pos += 1;
+                }
+
+                // Parse digits before decimal
+                pos += remainder[pos..]
+                    .char_indices()
+                    .skip_while(|(_, c)| c.is_ascii_digit())
+                    .next()
+                    .map(|(i, _)| i)
+                    .unwrap_or(remainder[pos..].len());
+
+                // Parse optional decimal and additional digits
+                if remainder[pos..].starts_with('.') {
+                    pos += 1;
+
+                    pos += remainder[pos..]
+                        .char_indices()
+                        .skip_while(|(_, c)| c.is_ascii_digit())
+                        .next()
+                        .map(|(i, _)| i)
+                        .unwrap_or(remainder[pos..].len());
+                }
+
+                let number = &remainder[..pos];
+                // TODO graceful error
+                assert!(
+                    number.chars().any(|c| c.is_ascii_digit()),
+                    "numeric symbols with no digits: {:?}",
+                    number
+                );
+                (pos, Token::Number(number))
+            }
+            'A'..='Z' | 'a'..='z' | '_' => {
+                let len = remainder
+                    .char_indices()
+                    .skip_while(|(_, c)| c.is_ascii_alphanumeric() || *c == '_')
+                    .next()
+                    .map(|(i, _)| i)
+                    .unwrap_or(remainder.len());
+
+                (len, Token::Ident(&remainder[..len]))
+            }
+            '#' => {
+                // Skip comment
+                let len = remainder
+                    .char_indices()
+                    .find(|(_, c)| "\r\n".contains(*c))
+                    .map(|(i, _)| i)
+                    .unwrap_or(remainder.len());
+                remainder = &remainder[len..].trim_start();
+                continue;
+            }
+            other => {
+                // TODO graceful error
+                panic!("unexpected input {:?}", other);
+            }
+        };
+
+        tokens.push(token);
+        remainder = &remainder[len..].trim_start();
+    }
+
+    tokens
 }
