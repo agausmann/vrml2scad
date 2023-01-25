@@ -12,7 +12,6 @@ impl<T, P: chumsky::Parser<Token, T, Error = Simple<Token>>> Parser<T> for P {}
 pub enum DefOr<T> {
     Def(String, T),
     Use(String),
-    Just(T),
 }
 
 impl<T> DefOr<T> {
@@ -20,14 +19,11 @@ impl<T> DefOr<T> {
         let p = Rc::new(p);
 
         choice((
-            just(Token::Ident("DEF".into()))
+            keyword("DEF")
                 .ignore_then(ident())
                 .then(p.clone())
                 .map(|(id, t)| Self::Def(id, t)),
-            just(Token::Ident("USE".into()))
-                .ignore_then(ident())
-                .map(Self::Use),
-            p.map(Self::Just),
+            keyword("USE").ignore_then(ident()).map(Self::Use),
         ))
     }
 }
