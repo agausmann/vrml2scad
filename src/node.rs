@@ -50,7 +50,7 @@ impl Node {
 }
 
 #[derive(Debug, Clone)]
-pub struct Transform {
+struct Transform {
     center: [f32; 3],
     rotation: [f32; 4],
     scale: [f32; 3],
@@ -150,14 +150,14 @@ impl Shape {
 
 #[derive(Debug, Clone)]
 struct Appearance {
-    material: DefOr<Material>,
+    material: Material,
 }
 
 impl Appearance {
     fn parser() -> impl Parser<Self> {
         keyword("Appearance")
             .ignore_then(
-                (keyword("material").ignore_then(DefOr::parser(Material::parser())))
+                (keyword("material").ignore_then(Material::parser()))
                     .delimited_by(just(Token::OpenBrace), just(Token::CloseBrace)),
             )
             .map(|material| Self { material })
