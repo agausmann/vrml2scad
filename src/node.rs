@@ -130,7 +130,10 @@ impl WriteDef for Transform {
             write!(
                 w,
                 "rotate({}, [{}, {}, {}]) ",
-                self.rotation[3], self.rotation[0], self.rotation[1], self.rotation[2]
+                self.rotation[3].to_degrees(),
+                self.rotation[0],
+                self.rotation[1],
+                self.rotation[2]
             )?;
         }
         if self.scale != [1.0; 3] {
