@@ -18,4 +18,5 @@ fn main() {
     //eprintln!("{:?}", node);
 
     node.write_def(&mut stdout()).unwrap();
+    println!("{}();", node.id());
 }
