@@ -4,7 +4,7 @@ mod token;
 use self::node::{DefOr, Node};
 use self::token::Token;
 use chumsky::Parser;
-use std::io::{stdin, Read};
+use std::io::{stdin, stdout, Read};
 
 fn main() {
     let mut input = String::new();
@@ -14,11 +14,11 @@ fn main() {
         .then_ignore(chumsky::primitive::end())
         .parse(input)
         .unwrap();
-
-    //println!("{:?}", tokens);
+    //eprintln!("{:?}", tokens);
 
     let parser = DefOr::<Node>::parser(Node::parser());
     let node = parser.parse(tokens).unwrap();
+    //eprintln!("{:?}", node);
 
-    println!("{:?}", node);
+    node.write_def(&mut stdout()).unwrap();
 }

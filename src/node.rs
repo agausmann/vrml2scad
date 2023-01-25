@@ -3,10 +3,15 @@ use chumsky::error::Simple;
 use chumsky::primitive::{choice, just};
 use chumsky::recursive::{recursive, Recursive};
 use chumsky::{select, Parser as _};
+use std::io::{self, Write};
 use std::rc::Rc;
 
 pub trait Parser<T>: chumsky::Parser<Token, T, Error = Simple<Token>> {}
 impl<T, P: chumsky::Parser<Token, T, Error = Simple<Token>>> Parser<T> for P {}
+
+pub trait WriteDef {
+    fn write_def(&self, id: &str, w: &mut impl Write) -> io::Result<()>;
+}
 
 #[derive(Debug, Clone)]
 pub enum DefOr<T> {
@@ -25,6 +30,23 @@ impl<T> DefOr<T> {
                 .map(|(id, t)| Self::Def(id, t)),
             keyword("USE").ignore_then(ident()).map(Self::Use),
         ))
+    }
+
+    pub fn id(&self) -> &str {
+        match self {
+            Self::Def(id, _) | Self::Use(id) => id,
+        }
+    }
+
+    pub fn write_def(&self, w: &mut impl Write) -> io::Result<()>
+    where
+        T: WriteDef,
+    {
+        match self {
+            Self::Def(id, t) => t.write_def(id, w)?,
+            Self::Use(_) => {}
+        }
+        Ok(())
     }
 }
 
@@ -45,8 +67,17 @@ impl Node {
     }
 }
 
+impl WriteDef for Node {
+    fn write_def(&self, id: &str, w: &mut impl Write) -> io::Result<()> {
+        match self {
+            Self::Transform(x) => x.write_def(id, w),
+            Self::Shape(x) => x.write_def(id, w),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
-struct Transform {
+pub struct Transform {
     center: [f32; 3],
     rotation: [f32; 4],
     scale: [f32; 3],
@@ -75,6 +106,47 @@ impl Transform {
                 TransformField::Translation(translation) => Self { translation, ..t },
                 TransformField::Children(children) => Self { children, ..t },
             })
+    }
+}
+
+impl WriteDef for Transform {
+    fn write_def(&self, id: &str, w: &mut impl Write) -> io::Result<()> {
+        for child in &self.children {
+            child.write_def(w)?;
+        }
+        // TODO apply center, scale_orientation
+        assert_eq!(self.scale_orientation[3], 0.0);
+        assert_eq!(self.center, [0.0; 3]);
+
+        write!(w, "module {}() {{ ", id)?;
+        if self.translation != [0.0; 3] {
+            write!(
+                w,
+                "translate([{}, {}, {}]) ",
+                self.translation[0], self.translation[1], self.translation[2]
+            )?;
+        }
+        if self.rotation[3] != 0.0 {
+            write!(
+                w,
+                "rotate({}, [{}, {}, {}]) ",
+                self.rotation[3], self.rotation[0], self.rotation[1], self.rotation[2]
+            )?;
+        }
+        if self.scale != [1.0; 3] {
+            write!(
+                w,
+                "scale([{}, {}, {}]) ",
+                self.scale[0], self.scale[1], self.scale[2]
+            )?;
+        }
+
+        write!(w, "{{ ")?;
+        for child in &self.children {
+            write!(w, "{}();", child.id())?;
+        }
+        writeln!(w, " }} }}")?;
+        Ok(())
     }
 }
 
@@ -124,7 +196,7 @@ impl TransformField {
 }
 
 #[derive(Debug, Clone)]
-struct Shape {
+pub struct Shape {
     appearance: DefOr<Appearance>,
     geometry: DefOr<IndexedFaceSet>,
 }
@@ -144,6 +216,21 @@ impl Shape {
     }
 }
 
+impl WriteDef for Shape {
+    fn write_def(&self, id: &str, w: &mut impl Write) -> io::Result<()> {
+        self.appearance.write_def(w)?;
+        self.geometry.write_def(w)?;
+        writeln!(
+            w,
+            "module {}() {{ color({}) {}(); }}",
+            id,
+            self.appearance.id(),
+            self.geometry.id()
+        )?;
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone)]
 struct Appearance {
     material: Material,
@@ -157,6 +244,20 @@ impl Appearance {
                     .delimited_by(just(Token::OpenBrace), just(Token::CloseBrace)),
             )
             .map(|material| Self { material })
+    }
+}
+
+impl WriteDef for Appearance {
+    fn write_def(&self, id: &str, w: &mut impl Write) -> io::Result<()> {
+        writeln!(
+            w,
+            "{} = [{},{},{},{}];",
+            id,
+            self.material.diffuse_color[0],
+            self.material.diffuse_color[1],
+            self.material.diffuse_color[2],
+            1.0 - self.material.transparency
+        )
     }
 }
 
@@ -205,6 +306,21 @@ impl IndexedFaceSet {
     }
 }
 
+impl WriteDef for IndexedFaceSet {
+    fn write_def(&self, id: &str, w: &mut impl Write) -> io::Result<()> {
+        self.coord.write_def(w)?;
+
+        writeln!(w, "module {}() {{ polyhedron({},[", id, self.coord.id())?;
+        for face in self.coord_index.chunks(4) {
+            // TODO support quads
+            assert_eq!(face[3], -1);
+            writeln!(w, "\t[{},{},{}],", face[0], face[1], face[2])?;
+        }
+        writeln!(w, "]); }}")?;
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone)]
 struct Coordinate {
     point: Vec<[f32; 3]>,
@@ -222,7 +338,19 @@ impl Coordinate {
     }
 }
 
+impl WriteDef for Coordinate {
+    fn write_def(&self, id: &str, w: &mut impl Write) -> io::Result<()> {
+        writeln!(w, "{} = [", id)?;
+        for p in &self.point {
+            writeln!(w, "\t[{},{},{}],", p[0], p[1], p[2])?;
+        }
+        writeln!(w, "];")?;
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct Normal {
     vector: Vec<[f32; 3]>,
 }
