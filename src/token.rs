@@ -55,6 +55,22 @@ pub fn tokenize<'a>(s: &'a str) -> Vec<Token<'a>> {
                         .unwrap_or(remainder[pos..].len());
                 }
 
+                // Parse optional exponent, sign and digits
+                if remainder[pos..].starts_with(['e', 'E']) {
+                    pos += 1;
+
+                    if remainder[pos..].starts_with(['-', '+']) {
+                        pos += 1;
+                    }
+
+                    pos += remainder[pos..]
+                        .char_indices()
+                        .skip_while(|(_, c)| c.is_ascii_digit())
+                        .next()
+                        .map(|(i, _)| i)
+                        .unwrap_or(remainder[pos..].len());
+                }
+
                 let number = &remainder[..pos];
                 // TODO graceful error
                 assert!(
